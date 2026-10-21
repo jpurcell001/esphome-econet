@@ -1,0 +1,140 @@
+"""Generate a per-instance package from one of the upstream device packages.
+
+Upstream's packages assume one `econet:` per node: every id is fixed (`econet_id`,
+`econet_uart`, `alarm_1`, ...). This merges a device package the way ESPHome would
+(packages, substitutions, !extend/!remove), keeps only the parts that belong to one heater,
+and prefixes every id with `${p}_` so the output can be included once per heater:
+
+    packages:
+      h1: !include {file: econet_heatpump_water_heater_instance.yaml,
+                    vars: {p: h1, device: h1_device, tx_pin: GPIO17, rx_pin: GPIO18, de_pin: GPIO16}}
+
+Each entity also gets `device_id: ${device}`, so a node's heaters show up in Home Assistant
+as separate (sub-)devices with the upstream entity names. Node-level parts (wifi, api
+transport, logger, ota, the restart button, the Wi-Fi signal sensor) stay in the node YAML.
+
+Run with ESPHome's own Python, from the repo root:
+    python tools/gen_instance_package.py econet_heatpump_water_heater.yaml \
+        > econet_heatpump_water_heater_instance.yaml
+"""
+
+import re
+import sys
+from pathlib import Path
+
+from esphome import yaml_util
+from esphome.components import packages, substitutions
+from esphome.config import resolve_extend_remove
+from esphome.core import CORE, Lambda
+
+ENTITY_DOMAINS = ["sensor", "binary_sensor", "text_sensor", "switch", "button", "select",
+                  "number", "climate", "water_heater"]
+KEEP = ["globals"] + ENTITY_DOMAINS
+NODE_LEVEL_PLATFORMS = {"wifi_signal", "restart"}
+ACTION_KEY = re.compile(r"^[a-z_0-9]+\.[a-z_0-9]+$")
+
+
+def load_merged(path):
+    CORE.config_path = Path(path).resolve()
+    config = yaml_util.load_yaml(Path(path))
+    # The same order as esphome.config.validate_config: load, substitute, merge, extend.
+    config = packages.do_packages_pass(config)
+    config = substitutions.do_substitution_pass(config)
+    config = packages.merge_packages(config)
+    config.pop("substitutions", None)
+    resolve_extend_remove(config)
+    return config
+
+
+def collect_ids(node, ids):
+    if isinstance(node, dict):
+        if isinstance(node.get("id"), str):
+            ids.add(node["id"])
+        for value in node.values():
+            collect_ids(value, ids)
+    elif isinstance(node, list):
+        for value in node:
+            collect_ids(value, ids)
+
+
+def rename(node, ids):
+    """Prefix every reference to one of `ids`: id keys, *_id keys, action shorthands, lambdas."""
+    pattern = re.compile(r"\bid\((" + "|".join(sorted(ids, key=len, reverse=True)) + r")\)")
+    fix = lambda name: f"${{p}}_{name}"
+
+    def walk(n):
+        if isinstance(n, dict):
+            for key in list(n):
+                value = n[key]
+                if isinstance(value, str) and value in ids and (
+                    key == "id" or key.endswith("_id") or ACTION_KEY.match(str(key))
+                ):
+                    n[key] = fix(value)
+                else:
+                    n[key] = walk(value)
+            return n
+        if isinstance(n, list):
+            return [walk(v) for v in n]
+        # Lambdas arrive as Lambda when tagged !lambda, and as plain strings under keys such
+        # as `lambda:` or a template's `mode:`.
+        if isinstance(n, Lambda):
+            return Lambda(pattern.sub(lambda m: f"id({fix(m.group(1))})", n.value))
+        if isinstance(n, str):
+            return pattern.sub(lambda m: f"id({fix(m.group(1))})", n)
+        return n
+
+    return walk(node)
+
+
+def main(device_package):
+    config = load_merged(device_package)
+    out = {}
+
+    uart = config["uart"][0] if isinstance(config["uart"], list) else config["uart"]
+    out["uart"] = [{
+        "id": "econet_uart",
+        "baud_rate": uart["baud_rate"],
+        "rx_buffer_size": uart["rx_buffer_size"],
+        "tx_pin": "${tx_pin}",
+        "rx_pin": "${rx_pin}",
+    }]
+    econet = dict(config["econet"])
+    econet["flow_control_pin"] = "${de_pin}"
+    econet["mcu_connected_binary_sensor"] = dict(econet["mcu_connected_binary_sensor"],
+                                                 device_id="${device}")
+    out["econet"] = [econet]
+
+    for domain in KEEP:
+        entries = [e for e in config.get(domain) or []
+                   if e.get("platform") not in NODE_LEVEL_PLATFORMS]
+        if not entries:
+            continue
+        for entry in entries:
+            if domain in ENTITY_DOMAINS:
+                entry["device_id"] = "${device}"
+            if entry.get("platform") == "econet":
+                entry["econet_id"] = "econet_id"
+        out[domain] = entries
+
+    # The api actions (read/write by datapoint name) call one instance each.
+    actions = []
+    for action in config.get("api", {}).get("actions", []):
+        action = dict(action)
+        action["action"] = "${p}_" + action["action"]
+        actions.append(action)
+    if actions:
+        out["api"] = {"actions": actions}
+
+    ids = set()
+    collect_ids(out, ids)
+    ids.add("econet_id")
+    out = rename(out, ids)
+
+    print(f"# GENERATED by tools/gen_instance_package.py from {device_package} — do not edit.")
+    print("# One heater's uart, econet instance, entities and api actions, every id prefixed with")
+    print("# ${p}_. Include once per heater with vars: p, device, tx_pin, rx_pin, de_pin.")
+    print(yaml_util.dump(out), end="")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

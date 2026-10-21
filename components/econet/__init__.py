@@ -14,6 +14,9 @@ from esphome.const import (
 from esphome.cpp_helpers import gpio_pin_expression
 
 DEPENDENCIES = ["uart"]
+# Several `econet:` blocks per node, each on its own UART (one bus per heater). Clients must
+# then name theirs with `econet_id:`; the C++ keeps no shared mutable state.
+MULTI_CONF = True
 
 CONF_SRC_ADDRESS = "src_address"
 CONF_DST_ADDRESS = "dst_address"
