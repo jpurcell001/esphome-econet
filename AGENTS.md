@@ -3,13 +3,13 @@
 A clone of [esphome-econet/esphome-econet](https://github.com/esphome-econet/esphome-econet)
 carrying what the water-heater controller board needs: two heaters, each on its own RS485 bus,
 in one ESPHome node. Why it exists and what depends on it:
-`~/projects/memory/projects/econet_controller_pcb.md`. The board itself is `~/projects/econet`
+`~/projects/memory/projects/econet_controller_pcb.md`. The board itself is `~/projects/pcb/econet_controller`
 (pin map: `docs/pinmap.md`).
 
-**Not on GitHub yet.** `upstream` is fetch-only (push `DISABLED`). Creating the GitHub fork
-`jpurcell001/esphome-econet` is the owner's call. Until then the board's ESPHome config in
-`~/projects/home_assistant/esphome/packages/econet_controller_board.yaml` points at this clone
-by local path.
+**On GitHub as `jpurcell001/esphome-econet`** (`origin`, since 2026-11-14); `upstream` is fetch-only
+(push `DISABLED`). The board's ESPHome config in
+`~/projects/home_assistant/esphome/packages/econet_controller_board.yaml` still points at this
+clone by local path (`../../forks/esphome-econet`), so builds run on a Mac with `~/projects/forks/`.
 
 ## Branches
 
