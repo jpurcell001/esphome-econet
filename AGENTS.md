@@ -8,8 +8,9 @@ in one ESPHome node. Why it exists and what depends on it:
 
 **On GitHub as `jpurcell001/esphome-econet`** (`origin`, since 2026-11-14); `upstream` is fetch-only
 (push `DISABLED`). The board's ESPHome config in
-`~/projects/home_assistant/esphome/packages/econet_controller_board.yaml` still points at this
-clone by local path (`../../forks/esphome-econet`), so builds run on a Mac with `~/projects/forks/`.
+`~/projects/home_assistant/esphome/packages/econet_controller_board.yaml` fetches this fork from
+GitHub at the tag in its `econet_fork_ref` substitution (first: `v3.8.2-multi.1`). To ship a change:
+commit here, push, tag (`v<upstream>-multi.<n>`), then bump `econet_fork_ref` in the HA repo.
 
 ## Branches
 
